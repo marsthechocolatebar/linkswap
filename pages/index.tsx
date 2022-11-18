@@ -215,6 +215,7 @@ const Swap = ({ defaultTokenList }: InferGetServerSidePropsType<typeof getServer
               setTokenInAmountString(balance);
             }}
             decimals={selectedTokenIn?.decimals ?? 0}
+            onTokenSelect={token => setTokenInAddress(token.address)}
           />
 
           <Flex alignItems="center" marginY={8}>
@@ -237,6 +238,7 @@ const Swap = ({ defaultTokenList }: InferGetServerSidePropsType<typeof getServer
             tokenList={tokenListMap[chain]}
             chain={chain}
             decimals={selectedTokenOut?.decimals ?? 0}
+            onTokenSelect={token => setTokenOutAddress(token.address)}
           />
 
           <Box w="100%" h={12} />

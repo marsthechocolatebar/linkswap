@@ -49,7 +49,7 @@ import useWalletEffect from 'src/hooks/useWalletEffect';
 import queryKeys from 'src/query-key';
 import { logger } from 'src/utils/logger';
 import { removeDotExceptFirstOne } from 'src/utils/with-comma';
-import { IERC20__factory } from 'types/ethers-contracts/factories';
+import { IERC20__factory, IWETH__factory } from 'types/ethers-contracts/factories';
 
 import styles from './Swap.module.scss';
 
@@ -98,7 +98,15 @@ const Swap = ({ defaultTokenList }: InferGetServerSidePropsType<typeof getServer
   const getTokenOutDenom = useAtomValue(getTokenOutDenomAtom);
   const updateFetchKey = useSetAtom(balanceFetchKey);
 
+  const [isSwapLoading, setIsSwapLoading] = useState(false);
   const [needRefreshTimer, setNeedRefreshTimer] = useState(false);
+
+  const { wrappedNativeToken, nativeToken } = config.chain.metaData[chain];
+
+  const isNativeToWrappedNative =
+    tokenInAddress === nativeToken && tokenOutAddress === wrappedNativeToken;
+  const isWrappedNativeToNative =
+    tokenInAddress === wrappedNativeToken && tokenOutAddress === nativeToken;
 
   const { data, isLoading, isRefetching, refetch, isError } = useQuery(
     queryKeys.quote.calculate(config.chain.metaData[chain].apiEndpoint, {
@@ -119,7 +127,10 @@ const Swap = ({ defaultTokenList }: InferGetServerSidePropsType<typeof getServer
     }),
     fetchQuote,
     {
-      enabled: Boolean(selectedTokenIn?.address && selectedTokenOut?.address && tokenInAmount),
+      enabled:
+        Boolean(selectedTokenIn?.address && selectedTokenOut?.address && tokenInAmount) &&
+        !isNativeToWrappedNative &&
+        !isWrappedNativeToNative,
       refetchOnWindowFocus: false,
       onSettled: () => setNeedRefreshTimer(true),
       retry: 3,
@@ -145,10 +156,6 @@ const Swap = ({ defaultTokenList }: InferGetServerSidePropsType<typeof getServer
     return data;
   }, [data, selectedTokenOut, isError, debouncedTokenInAmount]);
 
-  const tokenOutAmount = previewResult
-    ? getTokenOutDenom(previewResult.dexAgg.expectedAmountOut)
-    : 0;
-
   useEffect(() => {
     if (!selectedTokenIn || !selectedTokenOut) return;
 
@@ -156,7 +163,137 @@ const Swap = ({ defaultTokenList }: InferGetServerSidePropsType<typeof getServer
     localStorage.setItem(keyMap.SWAP_TO_TOKEN, JSON.stringify(selectedTokenOut));
   }, [selectedTokenIn, selectedTokenOut]);
 
+  const tokenOutAmount = (() => {
+    if (previewResult) return getTokenOutDenom(previewResult.dexAgg.expectedAmountOut);
+    if (isNativeToWrappedNative || isWrappedNativeToNative) return tokenInAmount;
+    return 0;
+  })();
+
+  const isCTADisabled: boolean = (() => {
+    if (isSwapLoading) return true;
+    if (!address || pageMode === 'flash') return false;
+    if (isNativeToWrappedNative || isWrappedNativeToNative) return false;
+    return !Boolean(data?.metamaskSwapTransaction);
+  })();
+
   const buttonText = pageMode === 'flash' ? 'Flash' : 'Swap';
+
+  const handleClickSwap = async () => {
+    if (!address || !tokenInAddress) return;
+
+    const provider = new ethers.providers.Web3Provider(
+      window.ethereum as unknown as ethers.providers.ExternalProvider,
+    );
+
+    walletExtension?.switchChain(chain);
+    const signer = provider.getSigner();
+
+    if (tokenInAddress !== '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
+      const erc20 = IERC20__factory.connect(tokenInAddress, signer);
+      const allowance = await erc20.allowance(
+        address,
+        config.chain.metaData[chain].approveProxyAddress,
+      );
+
+      if (allowance.eq(0)) {
+        try {
+          const tx = await erc20.approve(
+            config.chain.metaData[chain].approveProxyAddress,
+            ethers.constants.MaxUint256,
+          );
+          const receipt = await tx.wait();
+
+          if (receipt.status !== 1) {
+            throw new Error('Approve failed');
+          }
+        } catch (e) {
+          toast({
+            title: 'Failed to send transaction',
+            description: 'Need to approve first!',
+            status: 'error',
+            position: 'top-right',
+            duration: 5000,
+            isClosable: true,
+          });
+          return;
+        }
+      }
+    }
+
+    try {
+      // to address는  wN 주소
+      setIsSwapLoading(true);
+      const wEth = IWETH__factory.connect(wrappedNativeToken, signer);
+      const amount = BigNumber.from(tokenInAmount * Math.pow(10, selectedTokenIn?.decimals ?? 0));
+      const valueInHex = amount.toHexString();
+
+      let txPromise = (async () => {
+        if (isNativeToWrappedNative) {
+          // N -> wN: deposit
+          const contractTx = await wEth.deposit({ value: valueInHex });
+          return contractTx.wait().then(({ transactionHash }) => transactionHash);
+        } else if (isWrappedNativeToNative) {
+          // wN -> N: withdraw
+          const contractTx = await wEth.withdraw(valueInHex);
+          return contractTx.wait().then(({ transactionHash }) => transactionHash);
+        } else {
+          if (!data?.metamaskSwapTransaction) {
+            throw new Error('no response');
+          }
+          const { gasLimit, ...rest } = data.metamaskSwapTransaction;
+          return sendTransaction({ ...rest, value: BigNumber.from(rest.value).toHexString() });
+        }
+      })();
+
+      const txHash = await txPromise;
+
+      if (!txHash) throw new Error('invalid transaction!');
+
+      const toastId = toast({
+        title: 'Success!',
+        description: `Your transaction has sent: ${txHash}`,
+        status: 'success',
+        position: 'top-right',
+        duration: 5000,
+        isClosable: true,
+      });
+
+      const receipt = await provider.waitForTransaction(txHash);
+      updateFetchKey(+new Date());
+      if (receipt) {
+        // success
+        if (toastId) toast.close(toastId);
+        toast({
+          title: 'Success!',
+          description: (
+            <a
+              href={config.chain.metaData[chain]?.getBlockExplorerUrl(
+                txHash,
+              )}>{`Your transaction(${txHash}) is approved!`}</a>
+          ),
+          status: 'success',
+          position: 'top-right',
+          duration: 5000,
+          isClosable: true,
+        });
+      } else {
+        // fail
+      }
+      logger.debug('txhash', txHash);
+    } catch (e) {
+      logger.error(e);
+      toast({
+        title: 'Failed to send transaction',
+        description: 'Sorry. Someting went wrong, please try again',
+        status: 'error',
+        position: 'top-right',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsSwapLoading(false);
+    }
+  };
 
   return (
     <>
@@ -248,107 +385,15 @@ const Swap = ({ defaultTokenList }: InferGetServerSidePropsType<typeof getServer
           <Box w="100%" h={12} />
 
           <Button
-            isDisabled={!address || !data?.metamaskSwapTransaction || pageMode === 'flash'}
+            isDisabled={isCTADisabled}
+            isLoading={isSwapLoading}
             w="100%"
             size="lg"
             height={['48px', '54px', '54px', '64px']}
             fontSize={['md', 'lg', 'lg', 'xl']}
             opacity={1}
             colorScheme="primary"
-            onClick={async () => {
-              logger.debug(data?.metamaskSwapTransaction);
-              if (!data?.metamaskSwapTransaction || !address || !tokenInAddress) return;
-              const { gasLimit, ...rest } = data.metamaskSwapTransaction;
-
-              const provider = new ethers.providers.Web3Provider(
-                window.ethereum as unknown as ethers.providers.ExternalProvider,
-              );
-
-              walletExtension?.switchChain(chain);
-              const signer = provider.getSigner();
-
-              if (tokenInAddress !== '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee') {
-                const erc20 = IERC20__factory.connect(tokenInAddress, signer);
-                const allowance = await erc20.allowance(
-                  address,
-                  config.chain.metaData[chain].approveProxyAddress,
-                );
-
-                if (allowance.eq(0)) {
-                  try {
-                    const tx = await erc20.approve(
-                      config.chain.metaData[chain].approveProxyAddress,
-                      ethers.constants.MaxUint256,
-                    );
-                    const receipt = await tx.wait();
-
-                    if (receipt.status !== 1) {
-                      throw new Error('Approve failed');
-                    }
-                  } catch (e) {
-                    toast({
-                      title: 'Failed to send transaction',
-                      description: 'Need to approve first!',
-                      status: 'error',
-                      position: 'top-right',
-                      duration: 5000,
-                      isClosable: true,
-                    });
-                    return;
-                  }
-                }
-              }
-
-              try {
-                const txHash = await sendTransaction({
-                  ...rest,
-                  value: BigNumber.from(rest.value).toHexString(),
-                });
-
-                if (!txHash) throw new Error('invalid transaction!');
-
-                const toastId = toast({
-                  title: 'Success!',
-                  description: `Your transaction has sent: ${txHash}`,
-                  status: 'success',
-                  position: 'top-right',
-                  duration: 5000,
-                  isClosable: true,
-                });
-
-                const receipt = await provider.waitForTransaction(txHash);
-                updateFetchKey(+new Date());
-                if (receipt) {
-                  // success
-                  if (toastId) toast.close(toastId);
-                  toast({
-                    title: 'Success!',
-                    description: (
-                      <a
-                        href={config.chain.metaData[chain]?.getBlockExplorerUrl(
-                          txHash,
-                        )}>{`Your transaction(${txHash}) is approved!`}</a>
-                    ),
-                    status: 'success',
-                    position: 'top-right',
-                    duration: 5000,
-                    isClosable: true,
-                  });
-                } else {
-                  // fail
-                }
-                logger.debug('txhash', txHash);
-              } catch (e) {
-                toast({
-                  title: 'Failed to send transaction',
-                  description: 'Sorry. Someting went wrong, please try again',
-                  status: 'error',
-                  position: 'top-right',
-                  duration: 5000,
-                  isClosable: true,
-                });
-              }
-            }}>
+            onClick={handleClickSwap}>
             {buttonText}
           </Button>
         </Box>

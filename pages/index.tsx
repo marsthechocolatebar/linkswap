@@ -346,7 +346,7 @@ const Swap = ({ defaultTokenList }: InferGetServerSidePropsType<typeof getServer
             label={`You Sell`}
             isInvalid={isError}
             showBalance={!!address}
-            tokenList={tokenListMap[chain]}
+            tokenList={tokenListMap[chain].filter(t => t.address !== tokenOutAddress)}
             chain={chain}
             onBalanceClick={balance => {
               setTokenInAmountString(balance);
@@ -372,7 +372,7 @@ const Swap = ({ defaultTokenList }: InferGetServerSidePropsType<typeof getServer
             isReadOnly
             modalHeaderTitle="You Buy"
             label={`You Buy`}
-            tokenList={tokenListMap[chain]}
+            tokenList={tokenListMap[chain].filter(t => t.address !== tokenInAddress)}
             chain={chain}
             decimals={selectedTokenOut?.decimals ?? 0}
             onTokenSelect={token => setTokenOutAddress(token.address)}

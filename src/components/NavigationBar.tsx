@@ -175,7 +175,12 @@ const NavigationBar = () => {
                         <ListItem
                           key={chainName}
                           onClick={async () => {
-                            const isSwitched = await walletExtension?.switchChain(chainName);
+                            if (!walletExtension) {
+                              setChain(chainName);
+                              return;
+                            }
+
+                            const isSwitched = await walletExtension.switchChain(chainName);
                             if (!isSwitched) return;
                             setChain(chainName);
                             router.push('/', undefined);

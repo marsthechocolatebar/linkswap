@@ -165,7 +165,7 @@ const NavigationBar = () => {
               <Popover>
                 <PopoverTrigger>
                   <Button size="lg" rightIcon={<TriangleDownIcon />}>
-                    {router.isReady && router.pathname === '/' ? chain : 'Axelar'}
+                    {chain}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent>
@@ -183,12 +183,6 @@ const NavigationBar = () => {
                           {chainName}
                         </ListItem>
                       ))}
-                      <ListItem
-                        onClick={() => {
-                          router.push('/cross-chain', undefined, { shallow: true });
-                        }}>
-                        Axelar
-                      </ListItem>
                     </List>
                   </PopoverBody>
                 </PopoverContent>

@@ -61,7 +61,7 @@ const config: MetaConfig = {
         apiEndpoint: 'https://api-bsc.eisenfinance.com',
         getBlockExplorerUrl: (txHash: string) => `https://bscscan.com/tx/${txHash}`,
         routeProxyAddress: '0x208dA73F71fE00387C3fe0c4D71b77b39a8D1c5D',
-        approveProxyAddress: '0x416DEb7401bCb5CE1da7B7654505B29925EF7f17',
+        approveProxyAddress: '0xb17434364becDD20315E5413684278C0Ae59b8Cf',
       },
       polygon: {
         metamaskParams: {
@@ -79,7 +79,7 @@ const config: MetaConfig = {
         apiEndpoint: 'https://api-polygon.eisenfinance.com',
         getBlockExplorerUrl: (txHash: string) => `https://polygonscan.com/tx/${txHash}`,
         routeProxyAddress: '0x0cd6e5E6005f12AE69Df563594dceC2D79eD6018',
-        approveProxyAddress: '0x2081Dd6EEe991f4e4F0EB3315B7A15bF83C00Bb5',
+        approveProxyAddress: '0x1B167BD2aBBF8C22efD0525592d823095ddf5D2c',
       },
     },
   },

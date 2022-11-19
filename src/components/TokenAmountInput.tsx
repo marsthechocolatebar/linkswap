@@ -85,7 +85,7 @@ const TokenAmountInput = ({
         headerTitle={modalHeaderTitle}
         isOpen={isOpen}
         onClose={onClose}
-        tokenList={tokenList}
+        tokenList={tokenList.filter(x => x.address !== tokenAddress)}
         onSelectItem={token => {
           if (onTokenSelect) onTokenSelect(token);
         }}

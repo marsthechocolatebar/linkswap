@@ -153,8 +153,16 @@ const Swap = ({ defaultTokenList }: InferGetServerSidePropsType<typeof getServer
 
   const previewResult = useMemo(() => {
     if (!data || !selectedTokenOut || isError || !debouncedTokenInAmount) return null;
+    if (isNativeToWrappedNative || isWrappedNativeToNative) return null;
     return data;
-  }, [data, selectedTokenOut, isError, debouncedTokenInAmount]);
+  }, [
+    data,
+    selectedTokenOut,
+    isError,
+    debouncedTokenInAmount,
+    isNativeToWrappedNative,
+    isWrappedNativeToNative,
+  ]);
 
   useEffect(() => {
     if (!selectedTokenIn || !selectedTokenOut) return;
@@ -224,7 +232,11 @@ const Swap = ({ defaultTokenList }: InferGetServerSidePropsType<typeof getServer
       // to address는  wN 주소
       setIsSwapLoading(true);
       const wEth = IWETH__factory.connect(wrappedNativeToken, signer);
-      const amount = BigNumber.from(tokenInAmount * Math.pow(10, selectedTokenIn?.decimals ?? 0));
+      const amount = BigNumber.from(
+        new Decimal(String(tokenInAmount))
+          .mul(new Decimal(10).pow(selectedTokenIn?.decimals ?? 0))
+          .toHex(),
+      );
       const valueInHex = amount.toHexString();
 
       let txPromise = (async () => {
@@ -346,13 +358,19 @@ const Swap = ({ defaultTokenList }: InferGetServerSidePropsType<typeof getServer
             label={`You Sell`}
             isInvalid={isError}
             showBalance={!!address}
-            tokenList={tokenListMap[chain].filter(t => t.address !== tokenOutAddress)}
+            tokenList={tokenListMap[chain]}
             chain={chain}
             onBalanceClick={balance => {
               setTokenInAmountString(balance);
             }}
             decimals={selectedTokenIn?.decimals ?? 0}
-            onTokenSelect={token => setTokenInAddress(token.address)}
+            onTokenSelect={token => {
+              if (token.address === tokenOutAddress) {
+                handleClickReverse();
+                return;
+              }
+              setTokenInAddress(token.address);
+            }}
           />
 
           <Flex alignItems="center" marginY={8}>
@@ -372,10 +390,16 @@ const Swap = ({ defaultTokenList }: InferGetServerSidePropsType<typeof getServer
             isReadOnly
             modalHeaderTitle="You Buy"
             label={`You Buy`}
-            tokenList={tokenListMap[chain].filter(t => t.address !== tokenInAddress)}
+            tokenList={tokenListMap[chain]}
             chain={chain}
             decimals={selectedTokenOut?.decimals ?? 0}
-            onTokenSelect={token => setTokenOutAddress(token.address)}
+            onTokenSelect={token => {
+              if (token.address === tokenInAddress) {
+                handleClickReverse();
+                return;
+              }
+              setTokenOutAddress(token.address);
+            }}
           />
 
           <Box w="100%" h={12} />
